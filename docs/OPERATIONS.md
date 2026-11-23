@@ -90,20 +90,22 @@ Pick one:
 
 ### 3. Get the code
 
-The repository is private, so the VPS needs read access:
+The repository is public, so a plain clone works:
 
-1. Create a deploy key on the VPS:
-   ```bash
-   ssh-keygen -t ed25519 -C battlescout-vps -f ~/.ssh/battlescout -N ""
-   cat ~/.ssh/battlescout.pub
-   ```
-2. On GitHub, add that public key under the repo > Settings > Deploy keys. Read-only is enough.
-3. Clone with that key:
-   ```bash
-   GIT_SSH_COMMAND="ssh -i ~/.ssh/battlescout" git clone git@github.com:<owner>/<repo>.git ~/battlescout-hq-bot
-   cd ~/battlescout-hq-bot
-   git config core.sshCommand "ssh -i ~/.ssh/battlescout"
-   ```
+```bash
+git clone https://github.com/KhaliL990K/Battle-Scout-HQ.git ~/battlescout-hq-bot
+cd ~/battlescout-hq-bot
+```
+
+If the repository is ever made private, the VPS needs read access through a deploy key instead:
+
+1. Run `ssh-keygen -t ed25519 -f ~/.ssh/battlescout -N ""` on the VPS.
+2. Add `~/.ssh/battlescout.pub` under the repo > Settings > Deploy keys, read-only.
+3. Clone with
+   `GIT_SSH_COMMAND="ssh -i ~/.ssh/battlescout" git clone git@github.com:KhaliL990K/Battle-Scout-HQ.git ~/battlescout-hq-bot`.
+
+Because the code is public, never commit `.env`. It is in `.gitignore`. If a token ever leaks,
+reset it at once in the Developer Portal (Bot > Reset Token).
 
 ### 4. Configure
 
