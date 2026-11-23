@@ -61,19 +61,126 @@ Restart the bot after uploading; resolution happens once on ready.
 | Control says "out of date"      | The module/action no longer exists; re-open the hub                                                                                                                                      |
 | Error reply with `ERR-XXXX`     | Search the logs for that id; the stack and context are attached                                                                                                                          |
 
-## Deploy (pm2)
+## Deploy on a VPS (Ubuntu 22.04 / 24.04)
 
+Run as a normal user with sudo, not as root. Lines starting with `sudo` need admin rights.
+
+### 1. Node.js 20+ and pm2
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt-get install -y nodejs git
+sudo npm install -g pm2
+node -v   # must print v20 or newer
 ```
+
+### 2. MongoDB
+
+Pick one:
+
+- **Local on the VPS.** Install MongoDB Community Server by following the official Ubuntu guide
+  (mongodb.com/docs/manual/tutorial/install-mongodb-on-ubuntu). Then:
+  ```bash
+  sudo systemctl enable --now mongod
+  ```
+  Keep it bound to `127.0.0.1`, which is the default in `/etc/mongod.conf`, and never open port
+  27017 in the firewall. Use `MONGODB_URI=mongodb://127.0.0.1:27017/battlescout_hq`.
+- **MongoDB Atlas.** Create a free cluster, add the VPS IP to the Atlas network access list, and use
+  the `mongodb+srv://...` string it gives you as `MONGODB_URI`.
+
+### 3. Get the code
+
+The repository is private, so the VPS needs read access:
+
+1. Create a deploy key on the VPS:
+   ```bash
+   ssh-keygen -t ed25519 -C battlescout-vps -f ~/.ssh/battlescout -N ""
+   cat ~/.ssh/battlescout.pub
+   ```
+2. On GitHub, add that public key under the repo > Settings > Deploy keys. Read-only is enough.
+3. Clone with that key:
+   ```bash
+   GIT_SSH_COMMAND="ssh -i ~/.ssh/battlescout" git clone git@github.com:<owner>/<repo>.git ~/battlescout-hq-bot
+   cd ~/battlescout-hq-bot
+   git config core.sshCommand "ssh -i ~/.ssh/battlescout"
+   ```
+
+### 4. Configure
+
+```bash
+cp .env.example .env
+nano .env
+chmod 600 .env
+```
+
+In `.env`, set `NODE_ENV=production`, `LOG_LEVEL=info`, and your `DISCORD_TOKEN`, `CLIENT_ID`,
+`GUILD_ID` and `MONGODB_URI`. Use the **real HQ server id** here, not the test guild. The token never
+goes in git.
+
+Do not run `npm run seed` in production. The bot creates its settings document on the first start,
+and everything else is set from the panels.
+
+### 5. Install and start
+
+```bash
+npm ci --omit=dev
 pm2 start ecosystem.config.cjs
+pm2 logs battlescout-hq-bot --lines 50
+```
+
+The log should end with `Ready`. Then make it survive reboots:
+
+```bash
+pm2 startup
 pm2 save
 ```
 
-Single instance only: the gateway connection must not be clustered. The config backs off between crash restarts, gives the bot 10 seconds to flush logs and close MongoDB on stop, and restarts it above 400 MB. Shutdown on SIGINT/SIGTERM
-flushes the log queue, closes MongoDB, then destroys the client.
+`pm2 startup` prints one `sudo ...` command. Copy that command and run it.
+
+Install log rotation so pm2 logs cannot fill the disk:
+
+```bash
+pm2 install pm2-logrotate
+```
+
+### 6. Update to a new version
+
+```bash
+cd ~/battlescout-hq-bot
+git pull
+npm ci --omit=dev
+pm2 reload battlescout-hq-bot
+```
+
+Slash commands re-register on their own when their definitions change.
+
+### Notes
+
+- **Single instance only.** The gateway connection must not be clustered, and only one copy of the bot
+  may run per token. Stop the copy on your PC before starting the VPS one, or both answer every
+  click.
+- The pm2 config:
+  - backs off between crash restarts;
+  - gives the bot 10 seconds to flush logs and close MongoDB on stop;
+  - restarts the bot above 400 MB.
+- On SIGINT or SIGTERM, shutdown flushes the log queue, closes MongoDB, then destroys the client.
+- Useful commands:
+  - `pm2 status`
+  - `pm2 logs battlescout-hq-bot`
+  - `pm2 restart battlescout-hq-bot`
+  - `pm2 stop battlescout-hq-bot`
 
 ## Backup
 
-`mongodump --db battlescout_hq --out <dir>`; restore with `mongorestore`.
+`mongodump --db battlescout_hq --out <dir>`; restore with `mongorestore`. With a local MongoDB, a daily
+backup kept for 14 days is one crontab line (`crontab -e`):
+
+```
+0 4 * * * mongodump --db battlescout_hq --gzip --out ~/backups/$(date +\%F) && find ~/backups -maxdepth 1 -mtime +14 -exec rm -rf {} +
+```
+
+Atlas backs up its clusters itself (on paid tiers); on the free tier, run the same `mongodump` with
+`--uri "<your MONGODB_URI>"`.
 
 ## Manual test checklist: foundation and logging
 
